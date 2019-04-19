@@ -7,6 +7,8 @@
 
 void eliminate_variable(struct LP *lin_prog);
 
+bool fourier_motzkin_destructive(struct LP *lin_prog);
+
 int main(int argc, char *argv[])
 {
 	if (argc < 2)
@@ -42,6 +44,12 @@ int main(int argc, char *argv[])
 	*/
 
 	lp_print(&lin_prog);
+	printf("\n");
+
+	if (fourier_motzkin_destructive(&lin_prog))
+		printf("\nFEASIBLE\n\n");
+	else
+		printf("\nINFEASIBLE\n\n");
 	lp_free(&lin_prog);
 
 	return 0;
@@ -57,25 +65,50 @@ void eliminate_variable(struct LP *lin_prog)
 	lin_prog->constraints = malloc(lin_prog->_max_num_constraints * sizeof(struct Constraint));
 	lin_prog->num_constraints = 0;
 
-	// Append constraints that stay unchanged, and normalise the rest
-	for (size_t c=0; c<old_num_constraints; ++c) {
-		if (constraint_normalise_variable(old_constraints + c, v))
-			lp_add_constraint(lin_prog, old_constraints[c]);
-	}
+	/* Normalise constraints */
+	for (size_t c=0; c<old_num_constraints; ++c)
+		constraint_normalise_variable(old_constraints + c, lin_prog->num_variables, v);
+	//lp_prune(lin_prog);
 
-	// Append sums of relevant constraints
+	/* Append (sums of) relevant constraints */
 	for (size_t c=0; c<old_num_constraints; ++c) {
 		if (old_constraints[c].type == EQUAL)
-			continue;
-		for (size_t d=0; d<old_num_constraints; ++d)
-			if (old_constraints[d].type != EQUAL)
-				lp_add_constraint(lin_prog, constraint_sum(old_constraints + c, old_constraints + d));
+			lp_add_constraint(lin_prog, old_constraints[c]);
+		else if (old_constraints[c].linear_combination[v] == 1) {
+			for (size_t d=0; d<old_num_constraints; ++d) {
+				if (old_constraints[d].linear_combination[v] == -1) {
+					lp_add_constraint(lin_prog, constraint_sum(old_constraints + c,
+					                                           old_constraints + d,
+					                                           lin_prog->num_variables - 1)
+					);
+				}
+			}
+		}
 	}
 
-	// Remove last variable
+	/* Free old constraints */
+	for (size_t c=0; c<old_num_constraints; ++c)
+		if (old_constraints[c].type != EQUAL)
+			constraint_free(old_constraints + c);
+
 	lin_prog->num_variables--;
-	for (size_t c=0; c<lin_prog->num_constraints; ++c)
-		lin_prog->constraints[c].num_variables--;
 
 	free(old_constraints);
+}
+
+bool fourier_motzkin_destructive(struct LP *lin_prog)
+{
+	while (lin_prog->num_variables > 0) {
+		printf("Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
+		eliminate_variable(lin_prog);
+		printf("Resulting number of constraints: %lu\n", lin_prog->num_constraints);
+	}
+
+	/* Look for a constraint of the form "0 <= b", b<0 */
+	for (size_t c=0; c<lin_prog->num_constraints; ++c)
+		if (lin_prog->constraints[c].value < 0)
+			return false;
+
+	/* Nothing found: must be feasible :) */
+	return true;
 }

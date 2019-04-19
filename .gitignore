@@ -3,3 +3,4 @@
 !*.h
 !instances
 !.gitignore
+!Makefile
