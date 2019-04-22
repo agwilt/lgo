@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -Ofast -pedantic -std=c17
+CFLAGS = -Wall -Wextra -g -pedantic -std=c17
 
 DEPS = Makefile
 OBJ = obj

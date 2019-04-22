@@ -4,10 +4,23 @@
 #include "misc.h"
 
 #include <stdlib.h>
+#include <math.h>
+
+struct FeasibilityResult {
+	bool feasible;
+	double *certificate;
+	size_t certificate_length;
+};
 
 void eliminate_variable(struct LP *lin_prog);
 
-bool fourier_motzkin_destructive(struct LP *lin_prog);
+struct FeasibilityResult fourier_motzkin_destructive(struct LP *lin_prog);
+double feasible_last_variable(
+	struct Constraint *constraints,
+	size_t const num_constraints,
+	double const* smaller_solution,
+	size_t const num_variables
+);
 
 int main(int argc, char *argv[])
 {
@@ -22,34 +35,21 @@ int main(int argc, char *argv[])
 	fclose(fp);
 
 	/*
-	struct LP lin_prog = create_lp_empty(3, 1);
-
-	lin_prog.objective[0] = -2.0;
-	lin_prog.objective[1] = 0.0;
-	lin_prog.objective[2] = 8.0;
-
-	struct Constraint c_1 = create_constraint_empty(LESS_EQUAL, 3);
-	c_1.linear_combination[0] = 3.5;
-	c_1.linear_combination[1] = -2.0;
-	c_1.linear_combination[2] = 5.0;
-	c_1.value = 3;
-	lp_add_constraint(&lin_prog, c_1);
-
-	struct Constraint c_2 = create_constraint_empty(LESS_EQUAL, 3);
-	c_2.linear_combination[0] = 0.0;
-	c_2.linear_combination[1] = 1.0;
-	c_2.linear_combination[2] = -4.0;
-	c_2.value = 0;
-	lp_add_constraint(&lin_prog, c_2);
-	*/
-
 	lp_print(&lin_prog);
 	printf("\n");
+	*/
 
-	if (fourier_motzkin_destructive(&lin_prog))
-		printf("\nFEASIBLE\n\n");
-	else
-		printf("\nINFEASIBLE\n\n");
+	struct FeasibilityResult result = fourier_motzkin_destructive(&lin_prog);
+	if (result.feasible) {
+		for (size_t var=0; var<result.certificate_length; ++var) {
+			if (var > 0)
+				printf(" ");
+			printf("%g", result.certificate[var]);
+		}
+		printf("\n");
+	} else {
+		printf("INFEASIBLE\n");
+	}
 	lp_free(&lin_prog);
 
 	return 0;
@@ -85,30 +85,77 @@ void eliminate_variable(struct LP *lin_prog)
 			}
 		}
 	}
-
-	/* Free old constraints */
-	for (size_t c=0; c<old_num_constraints; ++c)
-		if (old_constraints[c].type != EQUAL)
-			constraint_free(old_constraints + c);
-
 	lin_prog->num_variables--;
 
-	free(old_constraints);
 }
 
-bool fourier_motzkin_destructive(struct LP *lin_prog)
+struct FeasibilityResult fourier_motzkin_destructive(struct LP *lin_prog)
 {
-	while (lin_prog->num_variables > 0) {
-		printf("Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
+	if (lin_prog->num_variables == 0) {
+		struct FeasibilityResult result = {.feasible = true, .certificate = NULL, .certificate_length = 0};
+		/* Look for a constraint of the form "0 <= b", b<0 */
+		for (size_t c=0; c<lin_prog->num_constraints; ++c)
+			if (lin_prog->constraints[c].value < 0)
+				result.feasible = false;
+		return result;
+	} else {
+		//fprintf(stderr, "Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
+		struct Constraint *old_constraints = lin_prog->constraints;
+		size_t const old_num_constraints = lin_prog->num_constraints;
+		size_t const old_num_variables = lin_prog->num_variables;
 		eliminate_variable(lin_prog);
-		printf("Resulting number of constraints: %lu\n", lin_prog->num_constraints);
+		//fprintf(stderr, "Resulting number of constraints: %lu\n", lin_prog->num_constraints);
+		struct FeasibilityResult result = fourier_motzkin_destructive(lin_prog);
+		if (result.feasible) {
+			result.certificate_length = old_num_variables;
+			result.certificate = realloc(result.certificate, old_num_variables * sizeof(double));
+			result.certificate[old_num_variables - 1] = feasible_last_variable(
+				old_constraints,
+				old_num_constraints,
+				result.certificate,
+				old_num_variables
+			);
+		}
+		/* Free old constraints */
+		for (size_t c=0; c<old_num_constraints; ++c)
+			if (old_constraints[c].type != EQUAL)
+				constraint_free(old_constraints + c);
+		free(old_constraints);
+		return result;
 	}
+}
 
-	/* Look for a constraint of the form "0 <= b", b<0 */
-	for (size_t c=0; c<lin_prog->num_constraints; ++c)
-		if (lin_prog->constraints[c].value < 0)
-			return false;
-
-	/* Nothing found: must be feasible :) */
-	return true;
+double feasible_last_variable(
+	struct Constraint *constraints,
+	size_t const num_constraints,
+	double const* smaller_solution,
+	size_t const num_variables
+)
+{
+	double lower_bound = -INFINITY;
+	double upper_bound = INFINITY;
+	for (size_t c=0; c<num_constraints; ++c) {
+		double const last_coefficient = constraints[c].linear_combination[num_variables-1];
+		if (last_coefficient == 0)
+			continue;
+		if (constraints[c].type != LESS_EQUAL)
+			error(1, "feasible_last_variable does not (yet) support different constraint types than \"<=\"");
+		double value = constraints[c].value;
+		for (size_t var=0; var<num_variables-1; ++var)
+			value -= constraints[c].linear_combination[var] * smaller_solution[var];
+		value /= last_coefficient;
+		if ((last_coefficient > 0) && (value < upper_bound)) {
+			upper_bound = value;
+		} else if ((last_coefficient < 0) && (value > lower_bound)) {
+			lower_bound = value;
+		}
+	}
+	if (lower_bound > upper_bound)
+		error(1, "feasible_last_variable cannot return valid value");
+	if (lower_bound != -INFINITY)
+		return lower_bound;
+	else if (upper_bound != INFINITY)
+		return upper_bound;
+	else
+		return 0;
 }
