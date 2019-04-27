@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 201710L
 
 #include "constraint.h"
+#include "lp.h"
 #include "misc.h"
 
 #include <stdlib.h>

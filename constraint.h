@@ -5,7 +5,10 @@
 
 #include <stddef.h>
 #include <stdbool.h>
-#include <stdio.h>
+
+/*
+ * Data Structures
+ */
 
 enum ConstraintType {
 	EQUAL = 0,
@@ -19,56 +22,27 @@ struct Constraint {
 	enum ConstraintType type;
 };
 
-struct LP {
-	double *objective;
-	struct Constraint *constraints;
-	size_t num_constraints;
-	size_t _max_num_constraints;
-	size_t num_variables;
-};
+/*
+ * Functions
+ */
 
-void constraint_normalise_variable(
-	struct Constraint *constraint,
-	size_t const num_variables,
-	size_t const variable
+struct Constraint create_constraint_empty(
+	enum ConstraintType type,
+	size_t num_variables
 );
 
-void constraint_multiply(
-	struct Constraint *constraint,
-	size_t const num_variables,
-	double const factor
-);
+struct Constraint constraint_clone(struct Constraint const* orig, size_t num_variables);
 
 void constraint_free(struct Constraint *constraint);
 
-/* create a new constraint that is the sum of the two given constraints */
 struct Constraint constraint_sum(
-	struct Constraint *lhs,
-	struct Constraint *rhs,
-	size_t const num_variables,
+	struct Constraint const* lhs,
+	struct Constraint const* rhs,
+	size_t num_variables,
 	double factor_lhs,
 	double factor_rhs
 );
 
-bool constraint_fulfilled(struct Constraint *constraint, double *assignment, size_t const num_variables);
-
-struct Constraint constraint_clone(struct Constraint *orig, size_t const num_variables);
-
-struct Constraint create_constraint_empty(
-	enum ConstraintType type,
-	size_t const num_variables
-);
-
-void lp_print(struct LP *lin_prog);
-void lp_print_human_readable(struct LP *lin_prog);
-
-void lp_free(struct LP *linear_program);
-void lp_add_constraint(struct LP *linear_program, struct Constraint const constraint);
-void lp_remove_constraint(struct LP *lin_prog, size_t index);
-struct LP create_lp_empty(size_t const num_variables, size_t const max_num_constraints);
-struct LP create_lp_from_file(FILE *fp);
-
-void lp_prune(struct LP *lin_prog);
-void lp_normalise_variable(struct LP *lin_prog, size_t const variable);
+bool constraint_fulfilled(struct Constraint const* constraint, double const* assignment, size_t num_variables);
 
 #endif // CONSTRAINT_H
