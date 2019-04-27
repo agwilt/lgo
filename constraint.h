@@ -50,6 +50,8 @@ struct Constraint constraint_sum(
 	double factor_rhs
 );
 
+bool constraint_fulfilled(struct Constraint *constraint, double *assignment, size_t const num_variables);
+
 struct Constraint constraint_clone(struct Constraint *orig, size_t const num_variables);
 
 struct Constraint create_constraint_empty(

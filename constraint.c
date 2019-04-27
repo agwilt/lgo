@@ -61,6 +61,25 @@ struct Constraint constraint_sum(
 	return sum;
 }
 
+bool constraint_fulfilled(struct Constraint *constraint, double *assignment, size_t const num_variables)
+{
+	double lhs = 0;
+	for (size_t var = 0; var < num_variables; ++var) {
+		lhs += assignment[var] * constraint->linear_combination[var];
+	}
+	switch (constraint->type) {
+		case LESS_EQUAL:
+			return lhs <= constraint->value;
+		case GREATER_EQUAL:
+			return lhs >= constraint->value;
+		case EQUAL:
+			return lhs == constraint->value;
+		default:
+			fprintf(stderr, "Error in constraint_fulfilled: Invalid constraint");
+			exit(1);
+	}
+}
+
 struct Constraint constraint_clone(struct Constraint *orig, size_t const num_variables)
 {
 	struct Constraint clone = {

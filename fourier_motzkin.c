@@ -42,15 +42,21 @@ int main(int argc, char *argv[])
 
 	struct FeasibilityResult result = fourier_motzkin(&lin_prog);
 	if (result.feasible) {
+		/* Print certificate */
 		for (size_t var=0; var<result.certificate_length; ++var) {
 			if (var > 0)
 				printf(" ");
 			printf("%g", result.certificate[var]);
 		}
-		printf("\n");
+		/* Check certificate */
+		for (size_t c = 0; c < lin_prog.num_constraints; ++c)
+			if (! constraint_fulfilled(lin_prog.constraints + c, result.certificate, result.certificate_length))
+				error(1, "Output broken: Certificate invalid.");
 	} else {
-		printf("INFEASIBLE\n");
+		printf("empty ");
 	}
+	printf("\n");
+
 	lp_free(&lin_prog);
 	free(result.certificate);
 
@@ -97,9 +103,11 @@ struct FeasibilityResult fourier_motzkin(struct LP *lin_prog)
 				result.feasible = false;
 		return result;
 	} else {
-		fprintf(stderr, "Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
 		struct LP new_lp = eliminate_variable(lin_prog);
-		fprintf(stderr, "Resulting number of constraints: %lu\n", lin_prog->num_constraints);
+#if DEBUG
+		fprintf(stderr, "Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
+		fprintf(stderr, "Resulting number of constraints: %lu\n", new_lp->num_constraints);
+#endif
 		struct FeasibilityResult result = fourier_motzkin(&new_lp);
 		if (result.feasible) {
 			result.certificate_length = lin_prog->num_variables;
@@ -124,7 +132,9 @@ double feasible_last_variable(
 	size_t const num_variables
 )
 {
+#if DEBUG
 	fprintf(stderr, "\nFinding value for x_%lu\n", num_variables);
+#endif
 	double lower_bound = -INFINITY;
 	double upper_bound = INFINITY;
 	for (size_t c=0; c<num_constraints; ++c) {
@@ -142,7 +152,9 @@ double feasible_last_variable(
 		} else if ((last_coefficient < 0) && (value > lower_bound)) {
 			lower_bound = value;
 		}
+#if DEBUG
 		fprintf(stderr, "x_%lu in [%g, %g]\n", num_variables, lower_bound, upper_bound);
+#endif
 	}
 	if (lower_bound > upper_bound) {
 		fprintf(stderr, "ERROR: Feasible_last_variable cannot return valid value in [%g, %g]\n", lower_bound, upper_bound);
