@@ -27,8 +27,7 @@ struct LP {
 	size_t num_variables;
 };
 
-/* return value: does variable have nonzero coefficient? */
-bool constraint_normalise_variable(
+void constraint_normalise_variable(
 	struct Constraint *constraint,
 	size_t const num_variables,
 	size_t const variable
@@ -46,7 +45,9 @@ void constraint_free(struct Constraint *constraint);
 struct Constraint constraint_sum(
 	struct Constraint *lhs,
 	struct Constraint *rhs,
-	size_t const num_variables
+	size_t const num_variables,
+	double factor_lhs,
+	double factor_rhs
 );
 
 struct Constraint constraint_clone(struct Constraint *orig, size_t const num_variables);
@@ -64,6 +65,8 @@ void lp_add_constraint(struct LP *linear_program, struct Constraint const constr
 void lp_remove_constraint(struct LP *lin_prog, size_t index);
 struct LP create_lp_empty(size_t const num_variables, size_t const max_num_constraints);
 struct LP create_lp_from_file(FILE *fp);
+
 void lp_prune(struct LP *lin_prog);
+void lp_normalise_variable(struct LP *lin_prog, size_t const variable);
 
 #endif // CONSTRAINT_H

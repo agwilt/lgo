@@ -10,7 +10,7 @@
 
 bool constraint_implies(struct Constraint *lhs, struct Constraint *rhs, size_t const num_variables);
 
-bool constraint_normalise_variable(
+void constraint_normalise_variable(
 	struct Constraint *constraint,
 	size_t const num_variables,
 	size_t const variable
@@ -19,13 +19,8 @@ bool constraint_normalise_variable(
 	if (variable >= num_variables)
 		error(1, "Bad call of constraint_normalise_variable");
 	double denominator = fabs(constraint->linear_combination[variable]);
-	if (denominator == 0) {
-		return false;
-	} else {
-		for (size_t i=0; i<num_variables; ++i)
-			constraint->linear_combination[i] /= denominator;
-		constraint->value /= denominator;
-		return true;
+	if (denominator != 0) {
+		constraint_multiply(constraint, num_variables, 1/denominator);
 	}
 }
 
@@ -44,17 +39,25 @@ void constraint_free(struct Constraint *constraint)
 	constraint->linear_combination = NULL;
 }
 
-struct Constraint constraint_sum(struct Constraint *lhs, struct Constraint *rhs, size_t const num_variables)
+struct Constraint constraint_sum(
+	struct Constraint *lhs,
+	struct Constraint *rhs,
+	size_t const num_variables,
+	double const factor_lhs,
+	double const factor_rhs
+)
 {
 	if (lhs->type != rhs->type)
 		error(1, "Tried to add two incompatible constraints");
+	if ((factor_lhs < 0) || (factor_rhs < 0))
+		error(1, "Invalid factors for constraint_sum");
 	struct Constraint sum = {
 		.linear_combination = malloc(num_variables * sizeof(double)),
-		.value = lhs->value + rhs->value,
+		.value = factor_lhs * lhs->value + factor_rhs * rhs->value,
 		.type = lhs->type,
 	};
 	for (size_t i=0; i<num_variables; ++i)
-		sum.linear_combination[i] = lhs->linear_combination[i] + rhs->linear_combination[i];
+		sum.linear_combination[i] = factor_lhs * lhs->linear_combination[i] + factor_rhs * rhs->linear_combination[i];
 	return sum;
 }
 
@@ -112,7 +115,7 @@ void lp_print(struct LP *lin_prog)
 	}
 }
 
-void lp_print_human_readable(struct LP *lin_prog)
+void lp_print_nice(struct LP *lin_prog)
 {
 #if 0
 	printf("Varaibles: ");
@@ -278,4 +281,10 @@ void lp_prune(struct LP *lin_prog)
 			}
 		}
 	}
+}
+
+void lp_normalise_variable(struct LP *lin_prog, size_t const variable)
+{
+	for (size_t c=0; c<lin_prog->num_constraints; ++c)
+		constraint_normalise_variable(lin_prog->constraints + c, lin_prog->num_variables, variable);
 }
