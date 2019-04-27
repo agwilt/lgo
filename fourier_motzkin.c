@@ -13,9 +13,16 @@ struct FeasibilityResult {
 	size_t certificate_length;
 };
 
-struct LP eliminate_variable(struct LP *lin_prog);
+struct LinCombTuple {
+	size_t index1;
+	size_t index2;
+	double factor1;
+	double factor2;
+};
 
-struct FeasibilityResult fourier_motzkin(struct LP *lin_prog);
+struct LP eliminate_variable(struct LP const* lin_prog, struct LinCombTuple **constr_lin_comb);
+
+struct FeasibilityResult fourier_motzkin(struct LP const* lin_prog);
 
 double feasible_last_variable(
 	struct Constraint *constraints,
@@ -42,21 +49,43 @@ int main(int argc, char *argv[])
 	*/
 
 	struct FeasibilityResult result = fourier_motzkin(&lin_prog);
-	if (result.feasible) {
-		/* Print certificate */
-		for (size_t var=0; var<result.certificate_length; ++var) {
-			if (var > 0)
-				printf(" ");
-			printf("%g", result.certificate[var]);
-		}
-		/* Check certificate */
-		for (size_t c = 0; c < lin_prog.num_constraints; ++c)
-			if (! constraint_fulfilled(lin_prog.constraints + c, result.certificate, result.certificate_length))
-				error(1, "Output broken: Certificate invalid.");
-	} else {
+	if (! result.feasible)
 		printf("empty ");
+	/* Print certificate */
+	for (size_t i=0; i<result.certificate_length; ++i) {
+		if (i > 0)
+			printf(" ");
+		printf("%g", result.certificate[i]);
 	}
 	printf("\n");
+
+	if (result.feasible) {
+		/* Check solution */
+		if (result.certificate_length != lin_prog.num_variables)
+			error(1, "Output broken: Certificate has wrong dimension.");
+		for (size_t c = 0; c < lin_prog.num_constraints; ++c)
+			if (! constraint_fulfilled(lin_prog.constraints + c, result.certificate, lin_prog.num_variables))
+				error(1, "Output broken: Certificate invalid.");
+	} else {
+		/* Check linear combination */
+		if (result.certificate_length != lin_prog.num_constraints)
+			error(1, "Output broken: Certificate has wrong dimension.");
+		for (size_t c = 0; c < result.certificate_length; ++c)
+			if (result.certificate[c] < 0)
+				error(1, "Output broken: Certificate has negative components.");
+		double scalar_prod = 0;
+		for (size_t c = 0; c < result.certificate_length; ++c)
+			scalar_prod += result.certificate[c] * lin_prog.constraints[c].value;
+		if (scalar_prod >= 0)
+			error(1, "Output broken: Certificate has non-negative scalar product with b.");
+		for (size_t var = 0; var < lin_prog.num_variables; ++var) {
+			double entry = 0.0;
+			for (size_t c = 0; c < lin_prog.num_constraints; ++c)
+				entry += result.certificate[c] * lin_prog.constraints[c].linear_combination[var];
+			if (entry != 0)
+				error(1, "Output broken: Certificate not orthogonal to im(A).");
+		}
+	}
 
 	lp_free(&lin_prog);
 	free(result.certificate);
@@ -64,51 +93,82 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-struct LP eliminate_variable(struct LP *lin_prog)
+/* NOTE: constr_lin_comb will be alloc'ed and will have (new_lp.num_constraints) entries */
+struct LP eliminate_variable(struct LP const* lin_prog, struct LinCombTuple **constr_lin_comb)
 {
-	struct LP new_lp = create_lp_empty(lin_prog->num_variables - 1, lin_prog->_max_num_constraints);
 	size_t const last_var = lin_prog->num_variables - 1;
 
-	//lp_normalise_variable(lin_prog, last_var);
-	//lp_prune(lin_prog);
+	/* Count the number of new constraints; I can't be bothered to implement something like push_back */
+	size_t new_num_constraints = 0;
+	for (size_t c=0; c<lin_prog->num_constraints; ++c) {
+		double const last_coefficient = lin_prog->constraints[c].linear_combination[last_var];
+		if (last_coefficient == 0.0)
+			++new_num_constraints;
+		else if (last_coefficient > 0)
+			for (size_t d=0; d<lin_prog->num_constraints; ++d)
+				new_num_constraints += (lin_prog->constraints[d].linear_combination[last_var] < 0);
+	}
 
+	struct LP new_lp = create_lp_empty(lin_prog->num_variables - 1, new_num_constraints);
+	*constr_lin_comb = realloc(*constr_lin_comb, new_num_constraints * sizeof(struct LinCombTuple));
+
+	size_t new_constraints_added = 0;
 	/* Append (sums of) relevant constraints */
 	for (size_t c=0; c<lin_prog->num_constraints; ++c) {
 		if (lin_prog->constraints[c].type != LESS_EQUAL)
 			error(1, "eliminate_variable only supports \"<\" constraints for now");
 		double const last_coefficient = lin_prog->constraints[c].linear_combination[last_var];
-		if (last_coefficient == 0.0)
+		if (last_coefficient == 0.0) {
 			lp_add_constraint(&new_lp, constraint_clone(lin_prog->constraints + c, new_lp.num_variables));
-		else if (last_coefficient > 0)
-			for (size_t d=0; d<lin_prog->num_constraints; ++d)
-				if (lin_prog->constraints[d].linear_combination[last_var] < 0)
+			(*constr_lin_comb)[new_constraints_added++] = (struct LinCombTuple) {
+				.index1 = c,
+				.index2 = c,
+				.factor1 = 1.0,
+				.factor2 = 0.0
+			};
+		} else if (last_coefficient > 0) {
+			for (size_t d=0; d<lin_prog->num_constraints; ++d) {
+				double const other_last_coefficient = lin_prog->constraints[d].linear_combination[last_var];
+				if (other_last_coefficient < 0) {
 					lp_add_constraint(
 						&new_lp,
 						constraint_sum(lin_prog->constraints + c,
 					                       lin_prog->constraints + d,
 					                       new_lp.num_variables,
-							       -lin_prog->constraints[d].linear_combination[last_var],
+							       -other_last_coefficient,
 							       last_coefficient)
 					);
+					(*constr_lin_comb)[new_constraints_added++] = (struct LinCombTuple) {
+						.index1 = c,
+						.index2 = d,
+						.factor1 = -other_last_coefficient,
+						.factor2 = last_coefficient
+					};
+				}
+			}
+		}
 	}
 	return new_lp;
 }
 
-struct FeasibilityResult fourier_motzkin(struct LP *lin_prog)
+struct FeasibilityResult fourier_motzkin(struct LP const* lin_prog)
 {
 	if (lin_prog->num_variables == 0) {
 		struct FeasibilityResult result = {.feasible = true, .certificate = NULL, .certificate_length = 0};
 		/* Look for a constraint of the form "0 <= b", b<0 */
-		for (size_t c=0; c<lin_prog->num_constraints; ++c)
-			if (lin_prog->constraints[c].value < 0)
+		for (size_t c=0; c<lin_prog->num_constraints; ++c) {
+			if (lin_prog->constraints[c].value < 0) {
 				result.feasible = false;
+				result.certificate_length = lin_prog->num_constraints;
+				result.certificate = calloc(result.certificate_length, sizeof(double));
+				result.certificate[c] = 1.0;
+				break;
+			}
+		}
 		return result;
 	} else {
-		struct LP new_lp = eliminate_variable(lin_prog);
-#if DEBUG
-		fprintf(stderr, "Reducing from %lu to %lu variables. ", lin_prog->num_variables, lin_prog->num_variables-1);
-		fprintf(stderr, "Resulting number of constraints: %lu\n", new_lp->num_constraints);
-#endif
+		struct LinCombTuple *lin_combs = NULL;
+		struct LP new_lp = eliminate_variable(lin_prog, &lin_combs);
 		struct FeasibilityResult result = fourier_motzkin(&new_lp);
 		if (result.feasible) {
 			result.certificate_length = lin_prog->num_variables;
@@ -119,9 +179,19 @@ struct FeasibilityResult fourier_motzkin(struct LP *lin_prog)
 				result.certificate,
 				lin_prog->num_variables
 			);
+		} else {
+			double *infeasibility_cert = result.certificate;
+			result.certificate_length = lin_prog->num_constraints;
+			result.certificate = calloc(lin_prog->num_constraints, sizeof(double));
+			for (size_t c=0; c<new_lp.num_constraints; ++c) {
+				result.certificate[lin_combs[c].index1] += lin_combs[c].factor1 * infeasibility_cert[c];
+				result.certificate[lin_combs[c].index2] += lin_combs[c].factor2 * infeasibility_cert[c];
+			}
+			free(infeasibility_cert);
 		}
-		/* Free new LP */
+		/* Free new LP and linear combination data */
 		lp_free(&new_lp);
+		free(lin_combs);
 		return result;
 	}
 }
@@ -133,9 +203,6 @@ double feasible_last_variable(
 	size_t const num_variables
 )
 {
-#if DEBUG
-	fprintf(stderr, "\nFinding value for x_%lu\n", num_variables);
-#endif
 	double lower_bound = -INFINITY;
 	double upper_bound = INFINITY;
 	for (size_t c=0; c<num_constraints; ++c) {
@@ -153,9 +220,6 @@ double feasible_last_variable(
 		} else if ((last_coefficient < 0) && (value > lower_bound)) {
 			lower_bound = value;
 		}
-#if DEBUG
-		fprintf(stderr, "x_%lu in [%g, %g]\n", num_variables, lower_bound, upper_bound);
-#endif
 	}
 	if (lower_bound > upper_bound) {
 		fprintf(stderr, "ERROR: Feasible_last_variable cannot return valid value in [%g, %g]\n", lower_bound, upper_bound);

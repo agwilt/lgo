@@ -17,4 +17,4 @@ clean: bin_clean obj_clean
 bin_clean:
 	rm -fv fourier_motzkin
 obj_clean:
-	rm -rfv "$(OBJ)/*"
+	rm -rfv $(OBJ)/*
