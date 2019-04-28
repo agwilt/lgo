@@ -33,15 +33,19 @@ double feasible_last_variable(
 
 int main(int argc, char *argv[])
 {
-	if (argc < 2)
-		error(1, "No file name supplied.");
-	FILE *fp = fopen(argv[1], "r");
-	if (fp == NULL) {
-		fprintf(stderr, "ERROR: Cannot open file: %s\n", argv[1]);
-		return 1;
+	FILE *fp;
+	if (argc >= 2) {
+		fp = fopen(argv[1], "r");
+		if (fp == NULL) {
+			fprintf(stderr, "ERROR: Cannot open file: %s\n", argv[1]);
+			return 1;
+		}
+	} else {
+		fp = stdin;
 	}
 	struct LP lin_prog = create_lp_from_file(fp);
-	fclose(fp);
+	if (argc >= 2)
+		fclose(fp);
 
 	/*
 	lp_print_nice(&lin_prog);
