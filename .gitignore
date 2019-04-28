@@ -1,6 +1,7 @@
 *
 !*.c
 !*.h
+!*.py
 !instances
 !.gitignore
 !Makefile
