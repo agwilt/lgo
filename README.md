@@ -6,7 +6,7 @@ Build all programs by running `make` without arguments.
 
 ## Limericks:
     Fourier-Motzkin Elimination
-    verdient leider nicht wenig Hohn:
+    bekommt leider manches an Hohn:
     Die Laufzeit nicht schnell
      - doppelt exponentiell
     Doch leicht zu verstehen ist es schon
