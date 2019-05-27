@@ -1,3 +1,9 @@
+# OUTDATED
+
+**Note**: The repository has been moved to [Gitlab](https://gitlab.com/agwilt-uni/lgo)
+
+---------------------
+
 Build all programs by running `make` without arguments.
 
 ## Programs:
